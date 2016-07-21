@@ -112,6 +112,7 @@ public class StockTaskService extends GcmTaskService{
       urlString = urlStringBuilder.toString();
       try{
         getResponse = fetchData(urlString);
+          Log.d("URL", "onRunTask: " + urlString);
         result = GcmNetworkManager.RESULT_SUCCESS;
         try {
           ContentValues contentValues = new ContentValues();
