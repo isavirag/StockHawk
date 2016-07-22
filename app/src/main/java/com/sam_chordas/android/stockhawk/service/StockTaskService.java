@@ -7,6 +7,7 @@ import android.database.Cursor;
 import android.database.DatabaseUtils;
 import android.os.RemoteException;
 import android.util.Log;
+
 import com.google.android.gms.gcm.GcmNetworkManager;
 import com.google.android.gms.gcm.GcmTaskService;
 import com.google.android.gms.gcm.TaskParams;
@@ -16,9 +17,11 @@ import com.sam_chordas.android.stockhawk.rest.Utils;
 import com.squareup.okhttp.OkHttpClient;
 import com.squareup.okhttp.Request;
 import com.squareup.okhttp.Response;
+
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.util.ArrayList;
 
 /**
  * Created by sam_chordas on 9/30/15.
@@ -112,21 +115,29 @@ public class StockTaskService extends GcmTaskService{
       urlString = urlStringBuilder.toString();
       try{
         getResponse = fetchData(urlString);
-          Log.d("URL", "onRunTask: " + urlString);
-        result = GcmNetworkManager.RESULT_SUCCESS;
-        try {
-          ContentValues contentValues = new ContentValues();
-          // update ISCURRENT to 0 (false) so new data is current
-          if (isUpdate){
-            contentValues.put(QuoteColumns.ISCURRENT, 0);
-            mContext.getContentResolver().update(QuoteProvider.Quotes.CONTENT_URI, contentValues,
-                null, null);
+          if(getResponse != null){
+              Log.d("URL", "onRunTask: " + urlString);
+              try {
+                  ContentValues contentValues = new ContentValues();
+                  // update ISCURRENT to 0 (false) so new data is current
+                  if (isUpdate){
+                      contentValues.put(QuoteColumns.ISCURRENT, 0);
+                      mContext.getContentResolver().update(QuoteProvider.Quotes.CONTENT_URI, contentValues,
+                              null, null);
+                  }
+                  ArrayList resultArray = Utils.quoteJsonToContentVals(getResponse);
+                  if(resultArray != null) {
+                      mContext.getContentResolver().applyBatch(QuoteProvider.AUTHORITY,
+                              resultArray);
+                      result = GcmNetworkManager.RESULT_SUCCESS;
+                  }
+                  else{
+                      Log.d("TEST", "RESULT: IT IS NULL");
+                  }
+              }catch (RemoteException | OperationApplicationException e){
+                  Log.e(LOG_TAG, "Error applying batch insert", e);
+              }
           }
-          mContext.getContentResolver().applyBatch(QuoteProvider.AUTHORITY,
-              Utils.quoteJsonToContentVals(getResponse));
-        }catch (RemoteException | OperationApplicationException e){
-          Log.e(LOG_TAG, "Error applying batch insert", e);
-        }
       } catch (IOException e){
         e.printStackTrace();
       }
