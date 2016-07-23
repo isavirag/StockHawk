@@ -4,9 +4,7 @@ import android.app.IntentService;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
-import android.widget.Toast;
 
-import com.google.android.gms.gcm.GcmNetworkManager;
 import com.google.android.gms.gcm.TaskParams;
 
 /**
@@ -15,6 +13,9 @@ import com.google.android.gms.gcm.TaskParams;
 public class StockIntentService extends IntentService {
 
   private int result = 1;
+
+  public static final String ACTION_FETCH_SYMBOL_RESULT = "FETCH_SYMBOL_RESULT";
+  public static final String RESULT_KEY = "result key";
 
   public StockIntentService(){
     super(StockIntentService.class.getName());
@@ -35,13 +36,8 @@ public class StockIntentService extends IntentService {
     // scheduling a task.
     result = stockTaskService.onRunTask(new TaskParams(intent.getStringExtra("tag"), args));
 
-  }
-
-  @Override
-  public void onDestroy() {
-    if (result == GcmNetworkManager.RESULT_FAILURE){
-      Toast.makeText(this, "Invalid Stock Symbol, Please try again.", Toast.LENGTH_SHORT).show();
-    }
-
+    Intent resultIntent = new Intent(ACTION_FETCH_SYMBOL_RESULT);
+    resultIntent.putExtra(RESULT_KEY, result);
+    sendBroadcast(resultIntent);
   }
 }

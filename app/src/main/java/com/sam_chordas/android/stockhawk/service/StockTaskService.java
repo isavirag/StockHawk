@@ -1,11 +1,13 @@
 package com.sam_chordas.android.stockhawk.service;
 
+import android.content.ContentProviderOperation;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.OperationApplicationException;
 import android.database.Cursor;
 import android.database.DatabaseUtils;
 import android.os.RemoteException;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.google.android.gms.gcm.GcmNetworkManager;
@@ -21,7 +23,11 @@ import com.squareup.okhttp.Response;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Locale;
 
 /**
  * Created by sam_chordas on 9/30/15.
@@ -47,6 +53,9 @@ public class StockTaskService extends GcmTaskService{
         .build();
 
     Response response = client.newCall(request).execute();
+
+    Log.d("URL Request", "fetchData: " + request.toString());
+    Log.d("URL Response", "fetchData: " + response.toString());
     return response.body().string();
   }
 
@@ -57,6 +66,7 @@ public class StockTaskService extends GcmTaskService{
       mContext = this;
     }
     StringBuilder urlStringBuilder = new StringBuilder();
+    StringBuilder urlStringBuilderHistory = new StringBuilder();
     try{
       // Base URL for the Yahoo query
       urlStringBuilder.append("https://query.yahooapis.com/v1/public/yql?q=");
@@ -67,10 +77,12 @@ public class StockTaskService extends GcmTaskService{
     }
     if (params.getTag().equals("init") || params.getTag().equals("periodic")){
       isUpdate = true;
+      //Get the list of current distinct symbols in the db
       initQueryCursor = mContext.getContentResolver().query(QuoteProvider.Quotes.CONTENT_URI,
           new String[] { "Distinct " + QuoteColumns.SYMBOL }, null,
           null, null);
-      if (initQueryCursor.getCount() == 0 || initQueryCursor == null){
+      //TODO: Make this code readable
+      if (initQueryCursor == null || initQueryCursor.getCount() == 0){
         // Init task. Populates DB with quotes for the symbols seen below
         try {
           urlStringBuilder.append(
@@ -78,7 +90,9 @@ public class StockTaskService extends GcmTaskService{
         } catch (UnsupportedEncodingException e) {
           e.printStackTrace();
         }
-      } else if (initQueryCursor != null){
+        //If it's not at init, get the current Stored Symbols from the DB and add them all to the URL
+      } else {
+        //dumpCursor prints the cursor contents to system, can delete this?
         DatabaseUtils.dumpCursor(initQueryCursor);
         initQueryCursor.moveToFirst();
         for (int i = 0; i < initQueryCursor.getCount(); i++){
@@ -86,6 +100,7 @@ public class StockTaskService extends GcmTaskService{
               initQueryCursor.getString(initQueryCursor.getColumnIndex("symbol"))+"\",");
           initQueryCursor.moveToNext();
         }
+        //TODO: what is this doing?
         mStoredSymbols.replace(mStoredSymbols.length() - 1, mStoredSymbols.length(), ")");
         try {
           urlStringBuilder.append(URLEncoder.encode(mStoredSymbols.toString(), "UTF-8"));
@@ -97,8 +112,27 @@ public class StockTaskService extends GcmTaskService{
       isUpdate = false;
       // get symbol from params.getExtra and build query
       String stockInput = params.getExtras().getString("symbol");
+
+        Calendar cal = Calendar.getInstance();
+        Date now = cal.getTime();
+        String nowString = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now);
+        cal.add(Calendar.MONTH, -6);
+        Date previous = cal.getTime();
+        String prevSixMonthDate = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(previous);
+
+        urlStringBuilderHistory.append("https://query.yahooapis.com/v1/public/yql?q=");
+
       try {
-        urlStringBuilder.append(URLEncoder.encode("\""+stockInput+"\")", "UTF-8"));
+
+          //add the historical query url
+          urlStringBuilderHistory.append(URLEncoder.encode("select * from yahoo.finance.historicaldata where " +
+                  "symbol = \""+stockInput+"\" and startDate = \""+prevSixMonthDate+"\" and endDate = \""+nowString+"\"" , "UTF-8"));
+        urlStringBuilderHistory.append("&format=json&diagnostics=true&env=store%3A%2F%2Fdatatables."
+            + "org%2Falltableswithkeys&callback=");
+
+          //Add the current query url
+          urlStringBuilder.append(URLEncoder.encode("\""+stockInput+"\")", "UTF-8"));
+
       } catch (UnsupportedEncodingException e){
         e.printStackTrace();
       }
@@ -107,43 +141,45 @@ public class StockTaskService extends GcmTaskService{
     urlStringBuilder.append("&format=json&diagnostics=true&env=store%3A%2F%2Fdatatables."
         + "org%2Falltableswithkeys&callback=");
 
-    String urlString;
-    String getResponse;
+
     int result = GcmNetworkManager.RESULT_FAILURE;
 
-    if (urlStringBuilder != null){
-      urlString = urlStringBuilder.toString();
-      try{
-        getResponse = fetchData(urlString);
-          if(getResponse != null){
-              Log.d("URL", "onRunTask: " + urlString);
-              try {
-                  ContentValues contentValues = new ContentValues();
-                  // update ISCURRENT to 0 (false) so new data is current
-                  if (isUpdate){
-                      contentValues.put(QuoteColumns.ISCURRENT, 0);
-                      mContext.getContentResolver().update(QuoteProvider.Quotes.CONTENT_URI, contentValues,
-                              null, null);
-                  }
-                  ArrayList resultArray = Utils.quoteJsonToContentVals(getResponse);
-                  if(resultArray != null) {
-                      mContext.getContentResolver().applyBatch(QuoteProvider.AUTHORITY,
-                              resultArray);
-                      result = GcmNetworkManager.RESULT_SUCCESS;
-                  }
-                  else{
-                      Log.d("TEST", "RESULT: IT IS NULL");
-                  }
-              }catch (RemoteException | OperationApplicationException e){
-                  Log.e(LOG_TAG, "Error applying batch insert", e);
-              }
-          }
-      } catch (IOException e){
-        e.printStackTrace();
-      }
+    if (!TextUtils.isEmpty(urlStringBuilder.toString())) {
+      result = fetchAndStoreData(urlStringBuilder.toString());
     }
-
+    if (!TextUtils.isEmpty(urlStringBuilderHistory.toString())) {
+      result = fetchAndStoreData(urlStringBuilderHistory.toString());
+    }
     return result;
   }
 
+  private int fetchAndStoreData(String urlString) {
+    try {
+      String getResponse = fetchData(urlString);
+      if (getResponse != null) {
+        Log.d("URL", "onRunTask: " + urlString);
+        try {
+          ContentValues contentValues = new ContentValues();
+          // update ISCURRENT to 0 (false) so new data is current
+          if (isUpdate) {
+            contentValues.put(QuoteColumns.ISCURRENT, 0);
+            mContext.getContentResolver().update(QuoteProvider.Quotes.CONTENT_URI, contentValues,
+                null, null);
+          }
+          //Check if the result is Null here
+          ArrayList<ContentProviderOperation> resultArray =  Utils.quoteJsonToContentVals(mContext, getResponse);
+          if (resultArray != null) {
+            mContext.getContentResolver().applyBatch(QuoteProvider.AUTHORITY,
+                resultArray);
+            return GcmNetworkManager.RESULT_SUCCESS;
+          }
+        } catch (RemoteException | OperationApplicationException e) {
+          Log.e(LOG_TAG, "Error applying batch insert", e);
+        }
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return GcmNetworkManager.RESULT_FAILURE;
+  }
 }

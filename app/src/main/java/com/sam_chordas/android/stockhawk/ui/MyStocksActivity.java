@@ -1,13 +1,16 @@
 package com.sam_chordas.android.stockhawk.ui;
 
 import android.app.LoaderManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.CursorLoader;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.Loader;
 import android.database.Cursor;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.app.ActionBar;
 import android.os.Bundle;
@@ -15,6 +18,7 @@ import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.helper.ItemTouchHelper;
 import android.text.InputType;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -77,58 +81,67 @@ public class MyStocksActivity extends AppCompatActivity implements LoaderManager
       }
     }
     RecyclerView recyclerView = (RecyclerView) findViewById(R.id.recycler_view);
-    recyclerView.setLayoutManager(new LinearLayoutManager(this));
-    getLoaderManager().initLoader(CURSOR_LOADER_ID, null, this);
+    if (recyclerView != null) {
+      recyclerView.setLayoutManager(new LinearLayoutManager(this));
 
-    mCursorAdapter = new QuoteCursorAdapter(this, null);
-    recyclerView.addOnItemTouchListener(new RecyclerViewItemClickListener(this,
-            new RecyclerViewItemClickListener.OnItemClickListener() {
-              @Override public void onItemClick(View v, int position) {
-                //TODO:
-                // do something on item click
-              }
-            }));
-    recyclerView.setAdapter(mCursorAdapter);
+      getLoaderManager().initLoader(CURSOR_LOADER_ID, null, this);
 
+      mCursorAdapter = new QuoteCursorAdapter(this, null);
+      recyclerView.addOnItemTouchListener(new RecyclerViewItemClickListener(this,
+          new RecyclerViewItemClickListener.OnItemClickListener() {
+            @Override
+            public void onItemClick(View v, int position) {
+              //TODO:
+              // do something on item click
+            }
+          }));
+      recyclerView.setAdapter(mCursorAdapter);
 
-    FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
-    fab.attachToRecyclerView(recyclerView);
-    fab.setOnClickListener(new View.OnClickListener() {
-      @Override public void onClick(View v) {
-        if (isConnected){
-          new MaterialDialog.Builder(mContext).title(R.string.symbol_search)
-              .content(R.string.content_test)
-              .inputType(InputType.TYPE_CLASS_TEXT)
-              .input(R.string.input_hint, R.string.input_prefill, new MaterialDialog.InputCallback() {
-                @Override public void onInput(MaterialDialog dialog, CharSequence input) {
-                  // On FAB click, receive user input. Make sure the stock doesn't already exist
-                  // in the DB and proceed accordingly
-                  Cursor c = getContentResolver().query(QuoteProvider.Quotes.CONTENT_URI,
-                      new String[] { QuoteColumns.SYMBOL }, QuoteColumns.SYMBOL + "= ?",
-                      new String[] { input.toString() }, null);
-                  if (c.getCount() != 0) {
-                    Toast toast =
-                        Toast.makeText(MyStocksActivity.this, "This stock is already saved!",
-                            Toast.LENGTH_LONG);
-                    toast.setGravity(Gravity.CENTER, Gravity.CENTER, 0);
-                    toast.show();
-                    return;
-                  } else {
-                    // Add the stock to DB
-                    mServiceIntent.putExtra("tag", "add");
-                    mServiceIntent.putExtra("symbol", input.toString());
-                    startService(mServiceIntent);
-                  }
-                }
-              })
-              .show();
-        } else {
-          networkToast();
-        }
+      registerReceiver(mBroadcastReceiver, new IntentFilter(StockIntentService.ACTION_FETCH_SYMBOL_RESULT));
+      registerReceiver(mBroadcastReceiver, new IntentFilter(Utils.ACTION_INVALID_BID_STATUS));
 
+      FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
+      if (fab != null) {
+        fab.attachToRecyclerView(recyclerView);
+        fab.setOnClickListener(new View.OnClickListener() {
+          @Override
+          public void onClick(View v) {
+            if (isConnected) {
+              new MaterialDialog.Builder(mContext).title(R.string.symbol_search)
+                  .content(R.string.content_test)
+                  .inputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+                  .input(R.string.input_hint, R.string.input_prefill, new MaterialDialog.InputCallback() {
+                    @Override
+                    public void onInput(@NonNull MaterialDialog dialog, CharSequence input) {
+                      // On FAB click, receive user input. Make sure the stock doesn't already exist
+                      // in the DB and proceed accordingly
+                      Cursor c = getContentResolver().query(QuoteProvider.Quotes.CONTENT_URI,
+                          new String[]{QuoteColumns.SYMBOL}, QuoteColumns.SYMBOL + "= ?",
+                          new String[]{input.toString()}, null);
+                      if (c != null && c.getCount() != 0) {
+                        Toast toast =
+                            Toast.makeText(MyStocksActivity.this, "This stock is already saved!",
+                                Toast.LENGTH_LONG);
+                        toast.setGravity(Gravity.CENTER, Gravity.CENTER, 0);
+                        toast.show();
+                        c.close();
+                      } else {
+                        // Add the stock to DB
+                        mServiceIntent.putExtra("tag", "add");
+                        mServiceIntent.putExtra("symbol", input.toString());
+                        startService(mServiceIntent);
+                      }
+                    }
+                  })
+                  .show();
+            } else {
+              networkToast();
+            }
+
+          }
+        });
       }
-    });
-
+    }
     ItemTouchHelper.Callback callback = new SimpleItemTouchHelperCallback(mCursorAdapter);
     mItemTouchHelper = new ItemTouchHelper(callback);
     mItemTouchHelper.attachToRecyclerView(recyclerView);
@@ -168,9 +181,11 @@ public class MyStocksActivity extends AppCompatActivity implements LoaderManager
 
   public void restoreActionBar() {
     ActionBar actionBar = getSupportActionBar();
-    actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_STANDARD);
-    actionBar.setDisplayShowTitleEnabled(true);
-    actionBar.setTitle(mTitle);
+    if (actionBar != null) {
+      actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_STANDARD);
+      actionBar.setDisplayShowTitleEnabled(true);
+      actionBar.setTitle(mTitle);
+    }
   }
 
   @Override
@@ -202,12 +217,17 @@ public class MyStocksActivity extends AppCompatActivity implements LoaderManager
   }
 
   @Override
+  protected void onDestroy() {
+    unregisterReceiver(mBroadcastReceiver);
+    super.onDestroy();
+  }
+
+  @Override
   public Loader<Cursor> onCreateLoader(int id, Bundle args){
     // This narrows the return to only the stocks that are most current.
     return new CursorLoader(this, QuoteProvider.Quotes.CONTENT_URI,
         new String[]{ QuoteColumns._ID, QuoteColumns.SYMBOL, QuoteColumns.BIDPRICE,
-            QuoteColumns.PERCENT_CHANGE, QuoteColumns.CHANGE, QuoteColumns.ISUP},
-        QuoteColumns.ISCURRENT + " = ?",
+            QuoteColumns.PERCENT_CHANGE, QuoteColumns.CHANGE}, QuoteColumns.ISCURRENT + " = ?",
         new String[]{"1"},
         null);
   }
@@ -222,5 +242,26 @@ public class MyStocksActivity extends AppCompatActivity implements LoaderManager
   public void onLoaderReset(Loader<Cursor> loader){
     mCursorAdapter.swapCursor(null);
   }
+
+
+  private BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
+    @Override
+    public void onReceive(Context context, Intent intent) {
+      Log.d("BROADCAST", "onReceive: I have received a broadcast " + intent.getAction());
+      if(intent.getAction().equals(StockIntentService.ACTION_FETCH_SYMBOL_RESULT)) {
+        int result = intent.getIntExtra(StockIntentService.RESULT_KEY, 0);
+        if (result == GcmNetworkManager.RESULT_FAILURE) {
+          Toast.makeText(MyStocksActivity.this, "Invalid Stock Symbol, Please try again.", Toast.LENGTH_SHORT).show();
+        }
+      }
+      if(intent.getAction().equals(Utils.ACTION_INVALID_BID_STATUS)) {
+        int invalidBid = intent.getIntExtra(Utils.INVALID_BID_KEY, 0);
+        Log.d("ERR STOCK", "onReceive: I AM CHECKING FOR ERROR");
+        if(invalidBid == 1){
+          Toast.makeText(MyStocksActivity.this, "Bid for this Stock is Unavailable.", Toast.LENGTH_SHORT).show();
+        }
+      }
+    }
+  };
 
 }
