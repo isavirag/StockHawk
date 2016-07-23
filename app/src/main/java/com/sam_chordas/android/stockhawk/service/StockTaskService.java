@@ -64,6 +64,11 @@ public class StockTaskService extends GcmTaskService{
   public int onRunTask(TaskParams params){
     Cursor initQueryCursor;
     String historyUrl = null;
+    String historyUrlInit1 = null;
+    String historyUrlInit2 = null;
+    String historyUrlInit3 = null;
+    String historyUrlInit4 = null;
+    ArrayList<String> historyUrls = new ArrayList<>();
 
     if (mContext == null){
       mContext = this;
@@ -89,6 +94,14 @@ public class StockTaskService extends GcmTaskService{
         try {
           urlStringBuilder.append(
               URLEncoder.encode("\"YHOO\",\"AAPL\",\"GOOG\",\"MSFT\")", "UTF-8"));
+          historyUrlInit1 = buildHistoryStockUrl("YHOO");
+          historyUrlInit2 = buildHistoryStockUrl("AAPL");
+          historyUrlInit3 = buildHistoryStockUrl("GOOG");
+          historyUrlInit4 = buildHistoryStockUrl("MSFT");
+          historyUrls.add(historyUrlInit1);
+          historyUrls.add(historyUrlInit2);
+          historyUrls.add(historyUrlInit3);
+          historyUrls.add(historyUrlInit4);
         } catch (UnsupportedEncodingException e) {
           e.printStackTrace();
         }
@@ -117,6 +130,7 @@ public class StockTaskService extends GcmTaskService{
 
       try {
         historyUrl = buildHistoryStockUrl(stockInput);
+        historyUrls.add(historyUrl);
         //Add the current query url
         urlStringBuilder.append(URLEncoder.encode("\""+stockInput+"\")", "UTF-8"));
 
@@ -134,8 +148,10 @@ public class StockTaskService extends GcmTaskService{
     if (!TextUtils.isEmpty(urlStringBuilder.toString())) {
       result = fetchAndStoreData(urlStringBuilder.toString());
     }
-    if (historyUrl != null) {
-      result = fetchAndStoreData(historyUrl);
+    if (historyUrls.size() > 0) {
+      for (int i = 0; i < historyUrls.size(); i++) {
+        result = fetchAndStoreData(historyUrls.get(i));
+      }
     }
     return result;
   }
