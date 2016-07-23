@@ -47,6 +47,7 @@ public class StockTaskService extends GcmTaskService{
   public StockTaskService(Context context){
     mContext = context;
   }
+
   String fetchData(String url) throws IOException{
     Request request = new Request.Builder()
         .url(url)
@@ -62,11 +63,12 @@ public class StockTaskService extends GcmTaskService{
   @Override
   public int onRunTask(TaskParams params){
     Cursor initQueryCursor;
+    String historyUrl = null;
+
     if (mContext == null){
       mContext = this;
     }
     StringBuilder urlStringBuilder = new StringBuilder();
-    StringBuilder urlStringBuilderHistory = new StringBuilder();
     try{
       // Base URL for the Yahoo query
       urlStringBuilder.append("https://query.yahooapis.com/v1/public/yql?q=");
@@ -113,25 +115,10 @@ public class StockTaskService extends GcmTaskService{
       // get symbol from params.getExtra and build query
       String stockInput = params.getExtras().getString("symbol");
 
-        Calendar cal = Calendar.getInstance();
-        Date now = cal.getTime();
-        String nowString = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now);
-        cal.add(Calendar.MONTH, -6);
-        Date previous = cal.getTime();
-        String prevSixMonthDate = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(previous);
-
-        urlStringBuilderHistory.append("https://query.yahooapis.com/v1/public/yql?q=");
-
       try {
-
-          //add the historical query url
-          urlStringBuilderHistory.append(URLEncoder.encode("select * from yahoo.finance.historicaldata where " +
-                  "symbol = \""+stockInput+"\" and startDate = \""+prevSixMonthDate+"\" and endDate = \""+nowString+"\"" , "UTF-8"));
-        urlStringBuilderHistory.append("&format=json&diagnostics=true&env=store%3A%2F%2Fdatatables."
-            + "org%2Falltableswithkeys&callback=");
-
-          //Add the current query url
-          urlStringBuilder.append(URLEncoder.encode("\""+stockInput+"\")", "UTF-8"));
+        historyUrl = buildHistoryStockUrl(stockInput);
+        //Add the current query url
+        urlStringBuilder.append(URLEncoder.encode("\""+stockInput+"\")", "UTF-8"));
 
       } catch (UnsupportedEncodingException e){
         e.printStackTrace();
@@ -147,8 +134,8 @@ public class StockTaskService extends GcmTaskService{
     if (!TextUtils.isEmpty(urlStringBuilder.toString())) {
       result = fetchAndStoreData(urlStringBuilder.toString());
     }
-    if (!TextUtils.isEmpty(urlStringBuilderHistory.toString())) {
-      result = fetchAndStoreData(urlStringBuilderHistory.toString());
+    if (historyUrl != null) {
+      result = fetchAndStoreData(historyUrl);
     }
     return result;
   }
@@ -181,5 +168,31 @@ public class StockTaskService extends GcmTaskService{
       e.printStackTrace();
     }
     return GcmNetworkManager.RESULT_FAILURE;
+  }
+
+  private String buildHistoryStockUrl(String stockInput){
+
+    StringBuilder urlStringBuilderHistory = new StringBuilder();
+
+    //Calculate today's and 6mos prior datestamp for historical data fetching
+    Calendar cal = Calendar.getInstance();
+    Date now = cal.getTime();
+    String nowString = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now);
+    cal.add(Calendar.MONTH, -6);
+    Date previous = cal.getTime();
+    String prevSixMonthDate = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(previous);
+
+   try {
+     urlStringBuilderHistory.append("https://query.yahooapis.com/v1/public/yql?q=");
+     urlStringBuilderHistory.append(URLEncoder.encode("select * from yahoo.finance.historicaldata where " +
+          "symbol = \""+stockInput+"\" and startDate = \""+prevSixMonthDate+"\" and endDate = \""+nowString+"\"" , "UTF-8"));
+      urlStringBuilderHistory.append("&format=json&diagnostics=true&env=store%3A%2F%2Fdatatables."
+          + "org%2Falltableswithkeys&callback=");
+
+    } catch (UnsupportedEncodingException e) {
+      e.printStackTrace();
+    }
+
+    return urlStringBuilderHistory.toString();
   }
 }
